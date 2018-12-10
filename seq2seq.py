@@ -70,9 +70,11 @@ from tensorflow.python.ops import embedding_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn_ops
 from tensorflow.python.ops import rnn
-from tensorflow.python.ops import rnn_cell
+# from tensorflow.python.ops import core_rnn_cell as rnn_cell
+from tensorflow.contrib.rnn.python.ops import core_rnn_cell as rnn_cell
 from tensorflow.python.ops import variable_scope
 from tensorflow.python.util import nest
+import tensorflow  as tf
 
 # TODO(ebrevdo): Remove once _linear is fully deprecated.
 linear = rnn_cell._linear  # pylint: disable=protected-access
@@ -593,8 +595,9 @@ def attention_decoder(decoder_inputs,
         v = []
         attention_vec_size = attn_size  # Size of query vectors for attention.
         for a in xrange(num_heads):
+            # with tf.variable_scope(tf.get_variable_scope(), reuse=True):
             k = variable_scope.get_variable("AttnW_%d" % a,
-                                            [1, 1, attn_size, attention_vec_size])
+                                        [1, 1, attn_size, attention_vec_size])
             hidden_features.append(nn_ops.conv2d(hidden, k, [1, 1, 1, 1], "SAME"))
             v.append(
                 variable_scope.get_variable("AttnV_%d" % a, [attention_vec_size]))
@@ -610,8 +613,9 @@ def attention_decoder(decoder_inputs,
                     ndims = q.get_shape().ndims
                     if ndims:
                         assert ndims == 2
-                query = array_ops.concat(1, query_list)
+                query = array_ops.concat(query_list,1)
             for a in xrange(num_heads):
+                # with tf.variable_scope(tf.get_variable_scope(), reuse=True):
                 with variable_scope.variable_scope("Attention_%d" % a):
                     y = linear(query, attention_vec_size, True)
                     y = array_ops.reshape(y, [-1, 1, 1, attention_vec_size])
@@ -650,6 +654,7 @@ def attention_decoder(decoder_inputs,
             input_size = inp.get_shape().with_rank(2)[1]
             if input_size.value is None:
                 raise ValueError("Could not infer input size from input: %s" % inp.name)
+            # with tf.variable_scope(tf.get_variable_scope(), reuse=True):
             x = linear([inp] + attns, input_size, True)
             # Run the RNN.
             cell_output, state = cell(x, state)
@@ -661,6 +666,7 @@ def attention_decoder(decoder_inputs,
             else:
                 attns = attention(state)
 
+            # with tf.variable_scope(tf.get_variable_scope(), reuse=True):
             with variable_scope.variable_scope("AttnOutputProjection"):
                 output = linear([cell_output] + attns, output_size, True)
             if loop_function is not None:
@@ -738,8 +744,9 @@ def embedding_attention_decoder(decoder_inputs,
     with variable_scope.variable_scope(
                     scope or "embedding_attention_decoder", dtype=dtype) as scope:
 
+        # with tf.variable_scope(tf.get_variable_scope(), reuse=True):
         embedding = variable_scope.get_variable("embedding",
-                                                [num_symbols, embedding_size])
+                                            [num_symbols, embedding_size])
         loop_function = loop_fn_factory(
             embedding, output_projection,
             update_embedding_for_previous) if feed_previous else None
@@ -817,13 +824,14 @@ def embedding_attention_seq2seq(encoder_inputs,
         encoder_cell = rnn_cell.EmbeddingWrapper(
             cell, embedding_classes=num_encoder_symbols,
             embedding_size=embedding_size)
-        encoder_outputs, encoder_state = rnn.rnn(
+        # with tf.variable_scope(tf.get_variable_scope(), reuse=True):
+        encoder_outputs, encoder_state = rnn.static_rnn(
             encoder_cell, encoder_inputs, dtype=dtype)
 
         # First calculate a concatenation of encoder outputs to put attention on.
         top_states = [array_ops.reshape(e, [-1, 1, cell.output_size])
                       for e in encoder_outputs]
-        attention_states = array_ops.concat(1, top_states)
+        attention_states = array_ops.concat(top_states, 1)
 
         # Decoder.
         output_size = None
@@ -1022,8 +1030,8 @@ def sequence_loss_by_example(logits, targets, weights,
                 # sequence_loss_by_example is called with scalars sometimes, which
                 # violates our general scalar strictness policy.
                 target = array_ops.reshape(target, [-1])
-                crossent = nn_ops.sparse_softmax_cross_entropy_with_logits(
-                    logit, target)
+                crossent = nn_ops.sparse_softmax_cross_entropy_with_logits_v2(
+                    logits=logit, labels=target)
             else:
                 crossent = softmax_loss_function(logit, target)
             log_perp_list.append(crossent * weight)

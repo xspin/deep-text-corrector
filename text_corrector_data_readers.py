@@ -74,7 +74,8 @@ class MovieDialogReader(DataReader):
 
     def __init__(self, config, train_path=None, token_to_id=None,
                  dropout_prob=0.25, replacement_prob=0.25, dataset_copies=2):
-        super(MovieDialogReader, self).__init__(
+        # super(MovieDialogReader, self).__init__(
+        super().__init__(
             config, train_path=train_path, token_to_id=token_to_id,
             special_tokens=[
                 PAD_TOKEN, GO_TOKEN, EOS_TOKEN,
@@ -110,8 +111,8 @@ class MovieDialogReader(DataReader):
     def unknown_token(self):
         return MovieDialogReader.UNKNOWN_TOKEN
 
-    def read_tokens(self, path):
-        with open(path, "r") as f:
-            for line in f:
-                yield line.lower().strip().split()
 
+    def read_tokens(self, path):
+        with open(path, "rb") as f:
+            for line in f:
+                yield line.decode(errors='ignore').lower().strip().split()

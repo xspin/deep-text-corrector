@@ -41,9 +41,11 @@ class DataReader(object):
             vocabulary = list(vocabulary)
             # Insert the special tokens at the beginning.
             vocabulary[0:0] = special_tokens
-            full_token_and_id = zip(vocabulary, range(len(vocabulary)))
+            full_token_and_id = list(zip(vocabulary, range(len(vocabulary))))
             self.full_token_to_id = dict(full_token_and_id)
             self.token_to_id = dict(full_token_and_id[:max_vocabulary_size])
+            # print([fuck for fuck in full_token_and_id])
+            # self.token_to_id['UNK']
 
         self.id_to_token = {v: k for k, v in self.token_to_id.items()}
 
@@ -119,6 +121,7 @@ class DataReader(object):
             yield source, target
 
     def build_dataset(self, path):
+        self.num = 0
         dataset = [[] for _ in self.config.buckets]
 
         # Make multiple copies of the dataset so that we synthesize different
@@ -130,7 +133,12 @@ class DataReader(object):
                     if len(source) < source_size and len(
                             target) < target_size:
                         dataset[bucket_id].append([source, target])
+                        self.num += 1
                         break
 
         return dataset
+    
+    def process(self, train_path, test_path):
+        self.train_data = self.build_dataset(train_path)
+        self.test_data = self.build_dataset(test_path)
 

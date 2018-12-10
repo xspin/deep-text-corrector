@@ -20,6 +20,7 @@ import os
 import sys
 import time
 from collections import defaultdict
+import pickle
 
 import numpy as np
 import tensorflow as tf
@@ -29,12 +30,29 @@ from text_corrector_data_readers import MovieDialogReader, PTBDataReader
 
 from text_corrector_models import TextCorrectorModel
 
+import logging
+
+# logging.basicConfig(level=logging.INFO)
+logFormatter = logging.Formatter("%(asctime)s %(message)s")
+rootLogger = logging.getLogger()
+
+fileHandler = logging.FileHandler("log.txt")
+fileHandler.setFormatter(logFormatter)
+rootLogger.addHandler(fileHandler)
+
+consoleHandler = logging.StreamHandler()
+consoleHandler.setFormatter(logFormatter)
+rootLogger.addHandler(consoleHandler)
+rootLogger.level = logging.INFO
+
+# os.environ['CUDA_VISIBLE_DEVICES'] = ''
+
 tf.app.flags.DEFINE_string("config", "TestConfig", "Name of config to use.")
 tf.app.flags.DEFINE_string("data_reader_type", "MovieDialogReader",
                            "Type of data reader to use.")
-tf.app.flags.DEFINE_string("train_path", "train", "Training data path.")
-tf.app.flags.DEFINE_string("val_path", "val", "Validation data path.")
-tf.app.flags.DEFINE_string("test_path", "test", "Testing data path.")
+tf.app.flags.DEFINE_string("train_path", "movie_lines.txt", "Training data path.")
+tf.app.flags.DEFINE_string("val_path", "val.txt", "Validation data path.")
+tf.app.flags.DEFINE_string("test_path", "test.txt", "Testing data path.")
 tf.app.flags.DEFINE_string("model_path", "model", "Path where the model is "
                                                   "saved.")
 tf.app.flags.DEFINE_boolean("decode", False, "Whether we should decode data "
@@ -44,6 +62,13 @@ tf.app.flags.DEFINE_boolean("decode", False, "Whether we should decode data "
 
 FLAGS = tf.app.flags.FLAGS
 
+def sec2str(sec):
+  h = sec//3600
+  sec = sec%3600
+  m = sec//60
+  sec = sec%60
+  if h+m==0: return "{:02.3f} sec".format(sec)
+  return "{:.0f}h{:02.0f}m{:02.0f}s".format(h,m,sec)
 
 class TestConfig():
     # We use a number of buckets and pad to the closest one for efficiency.
@@ -64,35 +89,16 @@ class TestConfig():
     use_lstm = False
     use_rms_prop = False
 
-
-class DefaultPTBConfig():
+class DefaultConfig():
     buckets = [(10, 10), (15, 15), (20, 20), (40, 40)]
 
-    steps_per_checkpoint = 100
+    steps_per_checkpoint = 200
     max_steps = 20000
+    epochs = 100
+    print_every = 3
 
-    max_vocabulary_size = 10000
-
-    size = 512
-    num_layers = 2
-    max_gradient_norm = 5.0
-    batch_size = 64
-    learning_rate = 0.5
-    learning_rate_decay_factor = 0.99
-
-    use_lstm = False
-    use_rms_prop = False
-
-
-class DefaultMovieDialogConfig():
-    buckets = [(10, 10), (15, 15), (20, 20), (40, 40)]
-
-    steps_per_checkpoint = 100
-    max_steps = 20000
-
-    # The OOV resolution scheme used in decode() allows us to use a much smaller
     # vocabulary.
-    max_vocabulary_size = 2000
+    max_vocabulary_size = 10000
 
     size = 512
     num_layers = 4
@@ -106,8 +112,45 @@ class DefaultMovieDialogConfig():
 
     projection_bias = 0.0
 
+class DefaultPTBConfig(DefaultConfig):
 
-def create_model(session, forward_only, model_path, config=TestConfig()):
+
+    max_vocabulary_size = 10000
+
+    size = 512
+    num_layers = 2
+    batch_size = 64
+
+    use_lstm = False
+    use_rms_prop = False
+
+
+class DefaultMovieDialogConfig(DefaultConfig):
+
+    steps_per_checkpoint = 200
+    max_steps = 20000
+    epochs = 100
+    print_every = 100
+
+    # The OOV resolution scheme used in decode() allows us to use a much smaller
+    # vocabulary.
+    max_vocabulary_size = 2000
+
+    size = 512
+    num_layers = 4
+    batch_size = 64
+    epochs = 100
+
+    use_lstm = True
+    use_rms_prop = False
+
+    model_path = 'dialog_correcter_model'
+
+    # dropout_prob=0.25
+    # replacement_prob=0.25
+    # dataset_copies=2
+
+def create_model(session, forward_only, config=TestConfig()):
     """Create translation model and initialize or load parameters in session."""
     model = TextCorrectorModel(
         config.max_vocabulary_size,
@@ -122,37 +165,43 @@ def create_model(session, forward_only, model_path, config=TestConfig()):
         use_lstm=config.use_lstm,
         forward_only=forward_only,
         config=config)
-    ckpt = tf.train.get_checkpoint_state(model_path)
-    if ckpt and tf.gfile.Exists(ckpt.model_checkpoint_path):
-        print("Reading model parameters from %s" % ckpt.model_checkpoint_path)
+    ckpt = tf.train.get_checkpoint_state(config.model_path)
+    # ckpt_path = tf.train.latest_checkpoint(model_path)
+    step = 0
+    if ckpt and os.path.exists(ckpt.model_checkpoint_path+'.index'):
+        logging.info("Reading model parameters from %s" % ckpt.model_checkpoint_path)
         model.saver.restore(session, ckpt.model_checkpoint_path)
+        lidx = ckpt.model_checkpoint_path.rfind('-')
+        # ridx = ckpt.model_checkpoint_path.rfind('.')
+        s = ckpt.model_checkpoint_path[lidx+1:]
+        if s: step = int(s)
     else:
-        print("Created model with fresh parameters.")
-        session.run(tf.initialize_all_variables())
-    return model
+        logging.info("Created model with fresh parameters.")
+        # session.run(tf.initialize_all_variables())
+        session.run(tf.global_variables_initializer())
+    return model, step
 
 
-def train(data_reader, train_path, test_path, model_path):
+def train(data_reader):
     """"""
-    print(
-        "Reading data; train = {}, test = {}".format(train_path, test_path))
     config = data_reader.config
-    train_data = data_reader.build_dataset(train_path)
-    test_data = data_reader.build_dataset(test_path)
+    # train_data = data_reader.build_dataset(train_path)
+    # test_data = data_reader.build_dataset(test_path)
+    train_data, test_data = data_reader.train_data, data_reader.test_data
+    model_path = config.model_path
 
     with tf.Session() as sess:
+        tf.summary.FileWriter('graph', sess.graph)
         # Create model.
-        print(
-            "Creating %d layers of %d units." % (
-                config.num_layers, config.size))
-        model = create_model(sess, False, model_path, config=config)
+        logging.info( "Creating %d layers of %d units." % (config.num_layers, config.size))
+        model, last_step = create_model(sess, False, config=config)
 
         # Read data into buckets and compute their sizes.
-        train_bucket_sizes = [len(train_data[b]) for b in
-                              range(len(config.buckets))]
-        print("Training bucket sizes: {}".format(train_bucket_sizes))
+        train_bucket_sizes = [len(train_data[b]) for b in range(len(config.buckets))]
+        logging.info("Training bucket sizes: {}".format(train_bucket_sizes))
         train_total_size = float(sum(train_bucket_sizes))
-        print("Total train size: {}".format(train_total_size))
+        logging.info("Total train size: {}".format(train_total_size))
+        config.max_steps = config.epochs * int(train_total_size//config.batch_size)
 
         # A bucket scale is a list of increasing numbers from 0 to 1 that
         # we'll use to select a bucket. Length of [scale[i], scale[i+1]] is
@@ -162,10 +211,32 @@ def train(data_reader, train_path, test_path, model_path):
             for i in range(len(train_bucket_sizes))]
 
         # This is the training loop.
+        logging.info('Start training ...')
+        start_time = time.time()
         step_time, loss = 0.0, 0.0
-        current_step = 0
+        current_step = last_step+1 if last_step>0 else 0
+        batches_per_epoch = int(train_total_size//config.batch_size)
+        last_epoch = int(current_step//batches_per_epoch)
+        current_epoch = last_epoch
+        epoch_step = current_step%batches_per_epoch
         previous_losses = []
+        logging.info('Initial step: {}, epoch: {}'.format(current_step, current_epoch))
         while current_step < config.max_steps:
+            if current_step==last_step+1 or current_step%batches_per_epoch == 0:
+                current_epoch += 1
+                epoch_tic = time.time()
+                epoch_step = 0
+                if current_epoch > last_epoch+1:
+                    logging.info('Time per epoch: {}'.format(
+                        sec2str((epoch_tic-start_time)/(current_epoch-last_epoch-1))))
+                sents = list(data_reader.read_tokens('example.txt'))
+                decodings = decode(sess, model=model, data_reader=data_reader,
+                                    data_to_decode=sents, verbose=False)
+                # Write the decoded tokens to stdout.
+                for sent, tokens in zip(sents, decodings):
+                    logging.info(" Input: {}".format(' '.join(sent)))
+                    logging.info("Output: {}".format(' '.join(tokens)))
+            epoch_step += 1
             # Choose a bucket according to data distribution. We pick a random
             # number in [0, 1] and use the corresponding interval in
             # train_buckets_scale.
@@ -174,61 +245,65 @@ def train(data_reader, train_path, test_path, model_path):
                              if train_buckets_scale[i] > random_number_01])
 
             # Get a batch and make a step.
-            start_time = time.time()
+            tic = time.time()
             encoder_inputs, decoder_inputs, target_weights = model.get_batch(
                 train_data, bucket_id)
             _, step_loss, _ = model.step(sess, encoder_inputs, decoder_inputs,
                                          target_weights, bucket_id, False)
-            step_time += (time.time() - start_time) / config \
-                .steps_per_checkpoint
+            toc = time.time()
+            step_time += (toc - tic) / config.steps_per_checkpoint
             loss += step_loss / config.steps_per_checkpoint
             current_step += 1
+
+            if current_step==1 or current_step % config.print_every == 0:
+                time_per_batch = (time.time()-epoch_tic)/epoch_step
+                # logging.info(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())))
+                logging.info('step %d/%d, epoch %d/%d, batch %d/%.0f, loss %f, avgloss: %f' %
+                            (current_step, config.max_steps, current_epoch, config.epochs, 
+                            epoch_step, batches_per_epoch, step_loss, loss))
+                            # exp_loss / exp_length, grad_norm, param_norm, mean_length, std_length))
+                logging.info('Time: {}, ETA: {}, batch time: {}\n'.format(
+                                sec2str(toc-start_time), 
+                                sec2str(time_per_batch*(batches_per_epoch-epoch_step)), 
+                                sec2str(time_per_batch)))
 
             # Once in a while, we save checkpoint, print statistics, and run
             # evals.
             if current_step % config.steps_per_checkpoint == 0:
                 # Print statistics for the previous epoch.
-                perplexity = math.exp(float(loss)) if loss < 300 else float(
-                    "inf")
-                print("global step %d learning rate %.4f step-time %.2f "
-                      "perplexity %.2f" % (
-                          model.global_step.eval(), model.learning_rate.eval(),
+                perplexity = math.exp(float(loss)) if loss < 300 else float("inf")
+                logging.info("global step %d, learning rate %.4f, step-time %.2f, perplexity %.2f" % 
+                        (model.global_step.eval(), model.learning_rate.eval(),
                           step_time, perplexity))
                 # Decrease learning rate if no improvement was seen over last
                 #  3 times.
-                if len(previous_losses) > 2 and loss > max(
-                        previous_losses[-3:]):
+                if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
                     sess.run(model.learning_rate_decay_op)
                 previous_losses.append(loss)
                 # Save checkpoint and zero timer and loss.
                 checkpoint_path = os.path.join(model_path, "translate.ckpt")
-                model.saver.save(sess, checkpoint_path,
-                                 global_step=model.global_step)
+                model.saver.save(sess, checkpoint_path, global_step=model.global_step)
                 step_time, loss = 0.0, 0.0
                 # Run evals on development set and print their perplexity.
                 for bucket_id in range(len(config.buckets)):
                     if len(test_data[bucket_id]) == 0:
-                        print("  eval: empty bucket %d" % (bucket_id))
+                        logging.info("  eval: empty bucket %d" % (bucket_id))
                         continue
-                    encoder_inputs, decoder_inputs, target_weights = \
-                        model.get_batch(test_data, bucket_id)
+                    encoder_inputs, decoder_inputs, target_weights = model.get_batch(test_data, bucket_id)
                     _, eval_loss, _ = model.step(sess, encoder_inputs,
                                                  decoder_inputs,
                                                  target_weights, bucket_id,
                                                  True)
                     eval_ppx = math.exp(
-                        float(eval_loss)) if eval_loss < 300 else float(
-                        "inf")
-                    print("  eval: bucket %d perplexity %.2f" % (
-                        bucket_id, eval_ppx))
+                        float(eval_loss)) if eval_loss < 300 else float("inf")
+                    logging.info("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
                 sys.stdout.flush()
 
 
 def get_corrective_tokens(data_reader, train_path):
     # TODO: this should be part of the model, learned during training
     corrective_tokens = set()
-    for source_tokens, target_tokens in data_reader.read_samples_by_string(
-            train_path):
+    for source_tokens, target_tokens in data_reader.read_samples_by_string(train_path):
         corrective_tokens.update(set(target_tokens) - set(source_tokens))
     return corrective_tokens
 
@@ -309,8 +384,8 @@ def decode(sess, model, data_reader, data_to_decode, corrective_tokens=set(),
         if verbose:
             decoded_sentence = " ".join(outputs)
 
-            print("Input: {}".format(" ".join(tokens)))
-            print("Output: {}\n".format(decoded_sentence))
+            logging.info("Input: {}".format(" ".join(tokens)))
+            logging.info("Output: {}\n".format(decoded_sentence))
 
         yield outputs
 
@@ -382,17 +457,38 @@ def evaluate_accuracy(sess, model, data_reader, corrective_tokens, test_path,
             targets[bucket_id], baseline_hypotheses[bucket_id])
         model_bleu_score = nltk.translate.bleu_score.corpus_bleu(
             targets[bucket_id], model_hypotheses[bucket_id])
-        print("Bucket {}: {}".format(bucket_id, model.buckets[bucket_id]))
-        print("\tBaseline BLEU = {:.4f}\n\tModel BLEU = {:.4f}".format(
+        logging.info("Bucket {}: {}".format(bucket_id, model.buckets[bucket_id]))
+        logging.info("\tBaseline BLEU = {:.4f}\n\tModel BLEU = {:.4f}".format(
             baseline_bleu_score, model_bleu_score))
-        print("\tBaseline Accuracy: {:.4f}".format(
+        logging.info("\tBaseline Accuracy: {:.4f}".format(
             1.0 * n_correct_baseline_by_bucket[bucket_id] /
             n_samples_by_bucket[bucket_id]))
-        print("\tModel Accuracy: {:.4f}".format(
+        logging.info("\tModel Accuracy: {:.4f}".format(
             1.0 * n_correct_model_by_bucket[bucket_id] /
             n_samples_by_bucket[bucket_id]))
 
     return errors
+
+def get_reader(config, train_path, test_path, reader='MovieDialog'):
+    logging.info("Reading data: train = {}, test = {}".format(train_path, test_path))
+    reader_path = os.path.join(config.model_path, reader+'Reader.p')
+    if os.path.exists(reader_path):
+        logging.info('Loading reader from %s'%reader_path)
+        return pickle.load(open(reader_path, 'rb'))
+    if reader == 'MovieDialog':
+        if not os.path.exists(config.model_path): os.mkdir(config.model_path)
+        logging.info('Creating reader')
+        data_reader = MovieDialogReader(config, train_path)
+        # data_reader = MovieDialogReader(config, train_path, dropout_prob=0.25, replacement_prob=0.25, dataset_copies=1)
+        data_reader.process(train_path, test_path)
+        logging.info('Saving reader to %s'%reader_path)
+        pickle.dump(data_reader, open(reader_path, 'wb'))
+        return data_reader
+    elif reader == 'PTBData':
+        pass
+
+    assert reader in ['MovieDialog', 'PTBData'], 'invalid reader: '+reader
+
 
 
 def main(_):
@@ -421,16 +517,16 @@ def main(_):
         # Decode test sentences.
         with tf.Session() as session:
             model = create_model(session, True, FLAGS.model_path, config=config)
-            print("Loaded model. Beginning decoding.")
+            logging.info("Loaded model. Beginning decoding.")
             decodings = decode(session, model=model, data_reader=data_reader,
                                data_to_decode=data_reader.read_tokens(
                                    FLAGS.test_path), verbose=False)
             # Write the decoded tokens to stdout.
             for tokens in decodings:
-                print(" ".join(tokens))
+                logging.info(" ".join(tokens))
                 sys.stdout.flush()
     else:
-        print("Training model.")
+        logging.info("Training model.")
         train(data_reader, FLAGS.train_path, FLAGS.val_path, FLAGS.model_path)
 
 

@@ -5,3 +5,8 @@
 .DS_Store
 *.zip
 upload_lambda_s3.sh
+
+*.txt
+dialog_correcter_model
+graph
+*.tgz
