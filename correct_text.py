@@ -21,6 +21,8 @@ import sys
 import time
 from collections import defaultdict
 import pickle
+import nltk.tokenize as tok
+from nltk.tokenize.treebank import TreebankWordDetokenizer as detok
 
 import numpy as np
 import tensorflow as tf
@@ -61,6 +63,9 @@ tf.app.flags.DEFINE_boolean("decode", False, "Whether we should decode data "
                                              "model_path.")
 
 FLAGS = tf.app.flags.FLAGS
+
+
+debug = False
 
 def sec2str(sec):
   h = sec//3600
@@ -127,7 +132,7 @@ class DefaultPTBConfig(DefaultConfig):
 
 class DefaultMovieDialogConfig(DefaultConfig):
 
-    steps_per_checkpoint = 200
+    steps_per_checkpoint = 10000
     max_steps = 20000
     epochs = 100
     print_every = 100
@@ -139,7 +144,6 @@ class DefaultMovieDialogConfig(DefaultConfig):
     size = 512
     num_layers = 4
     batch_size = 64
-    epochs = 100
 
     use_lstm = True
     use_rms_prop = False
@@ -191,10 +195,10 @@ def train(data_reader):
     model_path = config.model_path
 
     with tf.Session() as sess:
-        tf.summary.FileWriter('graph', sess.graph)
         # Create model.
         logging.info( "Creating %d layers of %d units." % (config.num_layers, config.size))
         model, last_step = create_model(sess, False, config=config)
+        tf.summary.FileWriter('graph', sess.graph)
 
         # Read data into buckets and compute their sizes.
         train_bucket_sizes = [len(train_data[b]) for b in range(len(config.buckets))]
@@ -214,28 +218,31 @@ def train(data_reader):
         logging.info('Start training ...')
         start_time = time.time()
         step_time, loss = 0.0, 0.0
-        current_step = last_step+1 if last_step>0 else 0
+        current_step = last_step
         batches_per_epoch = int(train_total_size//config.batch_size)
         last_epoch = int(current_step//batches_per_epoch)
         current_epoch = last_epoch
         epoch_step = current_step%batches_per_epoch
         previous_losses = []
         logging.info('Initial step: {}, epoch: {}'.format(current_step, current_epoch))
+        epoch_tic = time.time()
+        epoch_step = current_step%batches_per_epoch
+        if debug: exit()
         while current_step < config.max_steps:
-            if current_step==last_step+1 or current_step%batches_per_epoch == 0:
+            if current_step%batches_per_epoch == 0:
                 current_epoch += 1
                 epoch_tic = time.time()
                 epoch_step = 0
                 if current_epoch > last_epoch+1:
                     logging.info('Time per epoch: {}'.format(
                         sec2str((epoch_tic-start_time)/(current_epoch-last_epoch-1))))
-                sents = list(data_reader.read_tokens('example.txt'))
-                decodings = decode(sess, model=model, data_reader=data_reader,
-                                    data_to_decode=sents, verbose=False)
-                # Write the decoded tokens to stdout.
-                for sent, tokens in zip(sents, decodings):
-                    logging.info(" Input: {}".format(' '.join(sent)))
-                    logging.info("Output: {}".format(' '.join(tokens)))
+                # sents = list(data_reader.read_tokens('example.txt'))
+                # decodings = decode(sess, model=model, data_reader=data_reader,
+                #                     data_to_decode=sents, verbose=False)
+                # # Write the decoded tokens to stdout.
+                # for sent, tokens in zip(sents, decodings):
+                #     logging.info(" Input: {}".format(' '.join(sent)))
+                #     logging.info("Output: {}".format(' '.join(tokens)))
             epoch_step += 1
             # Choose a bucket according to data distribution. We pick a random
             # number in [0, 1] and use the corresponding interval in
@@ -258,7 +265,7 @@ def train(data_reader):
             if current_step==1 or current_step % config.print_every == 0:
                 time_per_batch = (time.time()-epoch_tic)/epoch_step
                 # logging.info(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())))
-                logging.info('step %d/%d, epoch %d/%d, batch %d/%.0f, loss %f, avgloss: %f' %
+                logging.info('Step %d/%d, epoch %d/%d, batch %d/%.0f, loss %f, avgloss: %f' %
                             (current_step, config.max_steps, current_epoch, config.epochs, 
                             epoch_step, batches_per_epoch, step_loss, loss))
                             # exp_loss / exp_length, grad_norm, param_norm, mean_length, std_length))
@@ -272,9 +279,8 @@ def train(data_reader):
             if current_step % config.steps_per_checkpoint == 0:
                 # Print statistics for the previous epoch.
                 perplexity = math.exp(float(loss)) if loss < 300 else float("inf")
-                logging.info("global step %d, learning rate %.4f, step-time %.2f, perplexity %.2f" % 
-                        (model.global_step.eval(), model.learning_rate.eval(),
-                          step_time, perplexity))
+                logging.info("Global step %d, learning rate %.4f, step-time %.2f, perplexity %.2f" % 
+                        (model.global_step.eval(), model.learning_rate.eval(), step_time, perplexity))
                 # Decrease learning rate if no improvement was seen over last
                 #  3 times.
                 if len(previous_losses) > 2 and loss > max(previous_losses[-3:]):
@@ -282,6 +288,7 @@ def train(data_reader):
                 previous_losses.append(loss)
                 # Save checkpoint and zero timer and loss.
                 checkpoint_path = os.path.join(model_path, "translate.ckpt")
+                logging.info('Saving checkpoint to %s'%checkpoint_path)
                 model.saver.save(sess, checkpoint_path, global_step=model.global_step)
                 step_time, loss = 0.0, 0.0
                 # Run evals on development set and print their perplexity.
@@ -294,8 +301,7 @@ def train(data_reader):
                                                  decoder_inputs,
                                                  target_weights, bucket_id,
                                                  True)
-                    eval_ppx = math.exp(
-                        float(eval_loss)) if eval_loss < 300 else float("inf")
+                    eval_ppx = math.exp(float(eval_loss)) if eval_loss < 300 else float("inf")
                     logging.info("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
                 sys.stdout.flush()
 
@@ -383,6 +389,7 @@ def decode(sess, model, data_reader, data_to_decode, corrective_tokens=set(),
 
         if verbose:
             decoded_sentence = " ".join(outputs)
+            # decoded_sentence = detok().detokenize(outputs)
 
             logging.info("Input: {}".format(" ".join(tokens)))
             logging.info("Output: {}\n".format(decoded_sentence))
@@ -393,9 +400,10 @@ def decode(sess, model, data_reader, data_to_decode, corrective_tokens=set(),
 def decode_sentence(sess, model, data_reader, sentence, corrective_tokens=set(),
                     verbose=True):
     """Used with InteractiveSession in an IPython notebook."""
-    return next(decode(sess, model, data_reader, [sentence.split()],
+    tokens = tok.word_tokenize(sentence)
+    decoding = next(decode(sess, model, data_reader, [tokens],
                        corrective_tokens=corrective_tokens, verbose=verbose))
-
+    return detok().detokenize(decoding)
 
 def evaluate_accuracy(sess, model, data_reader, corrective_tokens, test_path,
                       max_samples=None):
@@ -470,25 +478,24 @@ def evaluate_accuracy(sess, model, data_reader, corrective_tokens, test_path,
     return errors
 
 def get_reader(config, train_path, test_path, reader='MovieDialog'):
-    logging.info("Reading data: train = {}, test = {}".format(train_path, test_path))
-    reader_path = os.path.join(config.model_path, reader+'Reader.p')
-    if os.path.exists(reader_path):
-        logging.info('Loading reader from %s'%reader_path)
-        return pickle.load(open(reader_path, 'rb'))
-    if reader == 'MovieDialog':
+    assert reader in ['MovieDialog'], 'invalid reader: '+reader
+    # logging.info("Reading data: train = {}, test = {}".format(train_path, test_path))
+    # reader_path = os.path.join(config.model_path, reader+'Reader.p')
+    token2id_path = os.path.join(config.model_path, reader+'_token2id.p')
+    if os.path.exists(token2id_path):
+        logging.info('Loading token from %s'%token2id_path)
+        token2id = pickle.load(open(token2id_path, 'rb'))
+        data_reader = MovieDialogReader(config, token_to_id=token2id)
+    else:
         if not os.path.exists(config.model_path): os.mkdir(config.model_path)
         logging.info('Creating reader')
         data_reader = MovieDialogReader(config, train_path)
         # data_reader = MovieDialogReader(config, train_path, dropout_prob=0.25, replacement_prob=0.25, dataset_copies=1)
-        data_reader.process(train_path, test_path)
-        logging.info('Saving reader to %s'%reader_path)
-        pickle.dump(data_reader, open(reader_path, 'wb'))
-        return data_reader
-    elif reader == 'PTBData':
-        pass
-
-    assert reader in ['MovieDialog', 'PTBData'], 'invalid reader: '+reader
-
+        logging.info('Saving token to %s'%token2id_path)
+        pickle.dump(data_reader.token_to_id, open(token2id_path, 'wb'))
+    logging.info('Reader processing data, train: {}, test: {}'.format(train_path, test_path))
+    data_reader.process(train_path, test_path)
+    return data_reader
 
 
 def main(_):

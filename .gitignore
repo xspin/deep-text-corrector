@@ -10,3 +10,4 @@ upload_lambda_s3.sh
 dialog_correcter_model
 graph
 *.tgz
+__pycache__

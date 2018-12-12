@@ -5,6 +5,7 @@ from __future__ import print_function
 import random
 
 from data_reader import DataReader, PAD_TOKEN, EOS_TOKEN, GO_TOKEN
+from noise import *
 
 
 class PTBDataReader(DataReader):
@@ -66,7 +67,7 @@ class MovieDialogReader(DataReader):
 
     UNKNOWN_TOKEN = "UNK"
 
-    DROPOUT_TOKENS = {"a", "an", "the", "'ll", "'s", "'m", "'ve"}  # Add "to"
+    DROPOUT_TOKENS = {"a", "an", "the", "'ll", "'s", "'m", "'ve", "in", "for", "at"}  # Add "to"
 
     REPLACEMENTS = {"there": "their", "their": "there", "then": "than",
                     "than": "then"}
@@ -96,15 +97,18 @@ class MovieDialogReader(DataReader):
                 target.append(token)
 
                 # Randomly dropout some words from the input.
-                dropout_token = (token in MovieDialogReader.DROPOUT_TOKENS and
-                                random.random() < self.dropout_prob)
-                replace_token = (token in MovieDialogReader.REPLACEMENTS and
-                                random.random() < self.replacement_prob)
+                # dropout_token = (token in MovieDialogReader.DROPOUT_TOKENS and
+                #                 random.random() < self.dropout_prob)
+                # replace_token = (token in MovieDialogReader.REPLACEMENTS and
+                #                 random.random() < self.replacement_prob)
 
-                if replace_token:
-                    source.append(MovieDialogReader.REPLACEMENTS[token])
-                elif not dropout_token:
-                    source.append(token)
+                # if replace_token:
+                #     source.append(MovieDialogReader.REPLACEMENTS[token])
+                # elif not dropout_token:
+                #     source.append(token)
+                token_changed = add_noise(token)
+                if token_changed != '':
+                    source.append(token_changed)
 
             yield source, target
 

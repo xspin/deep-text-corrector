@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 from collections import Counter
+import pickle
 
 # Define constants associated with the usual special-case tokens.
 PAD_ID = 0
@@ -24,6 +25,7 @@ class DataReader(object):
         # Construct vocabulary.
         max_vocabulary_size = self.config.max_vocabulary_size
 
+        # self.token_to_id = pickle.load(open(pkpath, 'rb'))
         if train_path is None:
             self.token_to_id = token_to_id
         else:
@@ -46,6 +48,8 @@ class DataReader(object):
             self.token_to_id = dict(full_token_and_id[:max_vocabulary_size])
             # print([fuck for fuck in full_token_and_id])
             # self.token_to_id['UNK']
+            # print('dump token_to_id to', pkpath)
+            # pickle.dump(self.token_to_id, open(pkpath, 'wb'))
 
         self.id_to_token = {v: k for k, v in self.token_to_id.items()}
 
@@ -128,10 +132,8 @@ class DataReader(object):
         # dropouts.
         for _ in range(self.dataset_copies):
             for source, target in self.read_samples(path):
-                for bucket_id, (source_size, target_size) in enumerate(
-                        self.config.buckets):
-                    if len(source) < source_size and len(
-                            target) < target_size:
+                for bucket_id, (source_size, target_size) in enumerate(self.config.buckets):
+                    if len(source) < source_size and len(target) < target_size:
                         dataset[bucket_id].append([source, target])
                         self.num += 1
                         break
