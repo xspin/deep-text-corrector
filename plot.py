@@ -19,20 +19,22 @@ with open(log_path, 'r') as fhd:
 
 
 print('Ploting ...')
-plt.figure()
+plt.figure(figsize=(12,7))
 plt.subplot(211)
 plt.plot(step, loss)
 plt.title('Batch Loss')
 # plt.xticks()
 plt.xlim(min(step), max(step))
+plt.ylabel('Loss')
 
 plt.subplot(212)
 plt.plot(step, avgloss)
 plt.title('Averaged Loss')
 plt.xlabel('Step')
+plt.ylabel('Loss')
 plt.ylim(0,3)
 plt.xlim(min(step), max(step))
 
-plt.show()
 
 plt.savefig('loss.png')
+plt.show()

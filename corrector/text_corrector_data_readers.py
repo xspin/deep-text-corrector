@@ -4,8 +4,8 @@ from __future__ import print_function
 
 import random
 
-from data_reader import DataReader, PAD_TOKEN, EOS_TOKEN, GO_TOKEN
-from noise import *
+from .data_reader import DataReader, PAD_TOKEN, EOS_TOKEN, GO_TOKEN
+from .noise import *
 
 
 class PTBDataReader(DataReader):

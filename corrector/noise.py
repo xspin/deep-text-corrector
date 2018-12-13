@@ -6,7 +6,7 @@ VOCAB['prep'] = ['in', 'at', 'on', 'of', 'behind', 'via', 'under', 'for', 'beyon
     'beside', 'inside', 'outside', 'before', 'above', 'with', 'from', 'between', 'upon', 'into', 
     'after', 'as', 'by', 'about', 'without']
 VOCAB['art'] = ['the', 'a', 'an']
-VOCAB['pred'] = ['am', 'is', 'are', 'was', 'were', 'have', "'s", "'ve", 'had', 'has', "'m"]
+VOCAB['pred'] = ['am', 'is', 'are', 'was', 'were', 'have', "'s", "'ve", 'had', 'has', "'m", 'do', 'does']
 VOCAB['punc'] = ['.', ',', ';', ':', '"', "'", '?', '!']
 
 keep_prob = 0.6

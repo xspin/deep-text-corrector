@@ -7,8 +7,8 @@ import pickle
 import boto3
 import tensorflow as tf
 
-from correct_text import create_model, DefaultMovieDialogConfig, decode_sentence
-from text_corrector_data_readers import MovieDialogReader
+from .correct_text import create_model, DefaultMovieDialogConfig, decode_sentence
+from .text_corrector_data_readers import MovieDialogReader
 
 
 def safe_mkdir(path):

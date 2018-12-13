@@ -27,10 +27,10 @@ from nltk.tokenize.treebank import TreebankWordDetokenizer as detok
 import numpy as np
 import tensorflow as tf
 
-from data_reader import EOS_ID
-from text_corrector_data_readers import MovieDialogReader, PTBDataReader
+from .data_reader import EOS_ID
+from .text_corrector_data_readers import MovieDialogReader, PTBDataReader
 
-from text_corrector_models import TextCorrectorModel
+from .text_corrector_models import TextCorrectorModel
 
 import logging
 
@@ -132,10 +132,10 @@ class DefaultPTBConfig(DefaultConfig):
 
 class DefaultMovieDialogConfig(DefaultConfig):
 
-    steps_per_checkpoint = 10000
+    steps_per_checkpoint = 3000
     max_steps = 20000
     epochs = 100
-    print_every = 100
+    print_every = 200
 
     # The OOV resolution scheme used in decode() allows us to use a much smaller
     # vocabulary.
@@ -171,6 +171,8 @@ def create_model(session, forward_only, config=TestConfig()):
         config=config)
     ckpt = tf.train.get_checkpoint_state(config.model_path)
     # ckpt_path = tf.train.latest_checkpoint(model_path)
+    if forward_only:
+        assert ckpt and os.path.exists(ckpt.model_checkpoint_path+'.index'), 'invalid model checkpoint path!'
     step = 0
     if ckpt and os.path.exists(ckpt.model_checkpoint_path+'.index'):
         logging.info("Reading model parameters from %s" % ckpt.model_checkpoint_path)
@@ -198,7 +200,7 @@ def train(data_reader):
         # Create model.
         logging.info( "Creating %d layers of %d units." % (config.num_layers, config.size))
         model, last_step = create_model(sess, False, config=config)
-        tf.summary.FileWriter('graph', sess.graph)
+        # tf.summary.FileWriter('graph', sess.graph)
 
         # Read data into buckets and compute their sizes.
         train_bucket_sizes = [len(train_data[b]) for b in range(len(config.buckets))]
@@ -269,7 +271,7 @@ def train(data_reader):
                             (current_step, config.max_steps, current_epoch, config.epochs, 
                             epoch_step, batches_per_epoch, step_loss, loss))
                             # exp_loss / exp_length, grad_norm, param_norm, mean_length, std_length))
-                logging.info('Time: {}, ETA: {}, batch time: {}\n'.format(
+                logging.info('Time: {}, ETA: {}, step time: {}\n'.format(
                                 sec2str(toc-start_time), 
                                 sec2str(time_per_batch*(batches_per_epoch-epoch_step)), 
                                 sec2str(time_per_batch)))
@@ -400,6 +402,7 @@ def decode(sess, model, data_reader, data_to_decode, corrective_tokens=set(),
 def decode_sentence(sess, model, data_reader, sentence, corrective_tokens=set(),
                     verbose=True):
     """Used with InteractiveSession in an IPython notebook."""
+    sentence = sentence.lower()
     tokens = tok.word_tokenize(sentence)
     decoding = next(decode(sess, model, data_reader, [tokens],
                        corrective_tokens=corrective_tokens, verbose=verbose))
@@ -477,7 +480,7 @@ def evaluate_accuracy(sess, model, data_reader, corrective_tokens, test_path,
 
     return errors
 
-def get_reader(config, train_path, test_path, reader='MovieDialog'):
+def get_reader(config, train_path, test_path, reader='MovieDialog', process=True):
     assert reader in ['MovieDialog'], 'invalid reader: '+reader
     # logging.info("Reading data: train = {}, test = {}".format(train_path, test_path))
     # reader_path = os.path.join(config.model_path, reader+'Reader.p')
@@ -493,8 +496,9 @@ def get_reader(config, train_path, test_path, reader='MovieDialog'):
         # data_reader = MovieDialogReader(config, train_path, dropout_prob=0.25, replacement_prob=0.25, dataset_copies=1)
         logging.info('Saving token to %s'%token2id_path)
         pickle.dump(data_reader.token_to_id, open(token2id_path, 'wb'))
-    logging.info('Reader processing data, train: {}, test: {}'.format(train_path, test_path))
-    data_reader.process(train_path, test_path)
+    if process:
+        logging.info('Reader processing data, train: {}, test: {}'.format(train_path, test_path))
+        data_reader.process(train_path, test_path)
     return data_reader
 
 

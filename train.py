@@ -1,27 +1,10 @@
-from __future__ import print_function
+from corrector import Corrector
 
-import os
-import time
-import numpy as np
-import tensorflow as tf
-# import pandas as pd
-from collections import defaultdict
-
-# from sklearn.metrics import roc_auc_score, accuracy_score
-# import nltk
-
-from correct_text import train, decode, decode_sentence, evaluate_accuracy, create_model,\
-    get_corrective_tokens, DefaultPTBConfig, DefaultMovieDialogConfig, get_reader
-
-from text_corrector_data_readers import PTBDataReader, MovieDialogReader
+train_path = 'dataset/movie_lines.txt'
+test_path = 'dataset/test.txt'
+example_path = 'dataset/example.txt'
+model_path = 'dialog_correcter_model'
 
 
-# os.environ['CUDA_VISIBLE_DEVICES'] = ''
-
-
-train_path = 'movie_lines.txt'
-test_path = 'test.txt'
-
-config = DefaultMovieDialogConfig()
-data_reader = get_reader(config, train_path, test_path)
-train(data_reader)
+corrector = Corrector(train_path, test_path, model_path)
+corrector.train()

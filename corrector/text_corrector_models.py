@@ -11,8 +11,8 @@ from tensorflow.python.ops import embedding_ops
 from tensorflow.python.ops import math_ops
 from tensorflow.python.ops import nn_ops
 # from tensorflow.contrib import legacy_seq2seq
-import seq2seq
-from data_reader import PAD_ID, GO_ID
+from . import seq2seq
+from .data_reader import PAD_ID, GO_ID
 
 legacy_seq2seq = seq2seq
 
