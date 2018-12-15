@@ -399,14 +399,13 @@ def decode(sess, model, data_reader, data_to_decode, corrective_tokens=set(),
         yield outputs
 
 
-def decode_sentence(sess, model, data_reader, sentence, corrective_tokens=set(),
+def decode_sentence(sess, model, data_reader, tokens, corrective_tokens=set(),
                     verbose=True):
     """Used with InteractiveSession in an IPython notebook."""
-    sentence = sentence.lower()
-    tokens = tok.word_tokenize(sentence)
     decoding = next(decode(sess, model, data_reader, [tokens],
                        corrective_tokens=corrective_tokens, verbose=verbose))
-    return detok().detokenize(decoding)
+    #  detok().detokenize(decoding)
+    return decoding
 
 def evaluate_accuracy(sess, model, data_reader, corrective_tokens, test_path,
                       max_samples=None):
