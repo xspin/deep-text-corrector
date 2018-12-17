@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import random
+from collections import Counter
 
 from .data_reader import DataReader, PAD_TOKEN, EOS_TOKEN, GO_TOKEN
 from .noise import *
@@ -58,6 +59,51 @@ class PTBDataReader(DataReader):
             for line in f:
                 yield line.rstrip().lstrip().split()
 
+class ConllReader(DataReader):
+    
+    UNKNOWN_TOKEN = "UNK"
+
+    def __init__(self, config, train_path=None, token_to_id=None, special_tokens=(), dataset_copies=2, append=False):
+
+        if token_to_id and append:
+            token_counts = Counter()
+            for tokens in self.read_tokens(train_path):
+                token_counts.update(tokens)
+            count_pairs = sorted(token_counts.items(), key=lambda x: (-x[1], x[0]))
+            vocabulary, _ = list(zip(*count_pairs))
+            vocabulary = list(vocabulary)[:config.max_vocabulary_size]
+            for token in vocabulary:
+                if not token in token_to_id: token_to_id[token] = len(token_to_id)
+            train_path = None
+
+        super().__init__(
+            config, train_path=train_path, token_to_id=token_to_id,
+            special_tokens=[
+                PAD_TOKEN, GO_TOKEN, EOS_TOKEN,
+                ConllReader.UNKNOWN_TOKEN],
+            dataset_copies=dataset_copies)
+    
+        self.UNKNOWN_ID = self.token_to_id[ConllReader.UNKNOWN_TOKEN]
+
+    def read_samples_by_string(self, path):
+        for source, target in self.read_tokens_sample(path):
+            yield source, target
+
+    def unknown_token(self):
+        return ConllReader.UNKNOWN_TOKEN
+
+    def read_tokens(self, path):
+        with open(path, "rb") as f:
+            for line in f:
+                yield line.decode('utf8').lower().strip().split()
+
+    def read_tokens_sample(self, path):
+        with open(path, "rb") as f:
+            for line in f:
+                src, tgt = line.decode('utf8').split('\t')
+                src = src.lower().strip().split()
+                tgt = tgt.lower().strip().split()
+                yield src, tgt
 
 class MovieDialogReader(DataReader):
     """
@@ -69,8 +115,7 @@ class MovieDialogReader(DataReader):
 
     DROPOUT_TOKENS = {"a", "an", "the", "'ll", "'s", "'m", "'ve", "in", "for", "at"}  # Add "to"
 
-    REPLACEMENTS = {"there": "their", "their": "there", "then": "than",
-                    "than": "then"}
+    REPLACEMENTS = {"there": "their", "their": "there", "then": "than", "than": "then"}
     # Add: "be":"to"
 
     def __init__(self, config, train_path=None, token_to_id=None,

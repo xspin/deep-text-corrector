@@ -4,9 +4,25 @@ from nltk.tokenize.treebank import TreebankWordDetokenizer as detok
 import tensorflow as tf
 
 from .correct_text import train, decode, decode_sentence, evaluate_accuracy, create_model,\
-    get_corrective_tokens, DefaultPTBConfig, DefaultMovieDialogConfig, get_reader
+    get_corrective_tokens, DefaultPTBConfig, DefaultMovieDialogConfig, DefaultConllConfig, get_reader
 
 from .text_corrector_data_readers import PTBDataReader, MovieDialogReader
+
+def word_equal(wa, wb):
+    Abb = {
+        "'ve": ["have"],
+        "'re": ["are"],
+        "'s": ["is", "hash", "was"],
+        "'m": ["am"],
+        "n't": ["not"],
+        "'ll": ["will"],
+        "'d": ["would"],
+    }
+    if wa==wb: return True
+    if wa in Abb and wb in Abb[wa]: return True
+    if wb in Abb and wa in Abb[wb]: return True
+    return False
+    
 
 def find_error(src_tokens, tgt_tokens):
     src = nltk.pos_tag(src_tokens)
@@ -16,12 +32,12 @@ def find_error(src_tokens, tgt_tokens):
     record = []
     i, j = 0, 0
     while src[i]!='EOS' and tgt[j]!='EOS':
-        if src[i][0]==tgt[j][0]: 
+        if word_equal(src[i][0],tgt[j][0]): 
             pass
-        elif src[i+1][0]==tgt[j][0]: # a word is removed
+        elif word_equal(src[i+1][0],tgt[j][0]): # a word is removed
             record.append([src[i], None])
             i += 1
-        elif src[i][0]==tgt[j+1][0]: # a word is added
+        elif word_equal(src[i][0],tgt[j+1][0]): # a word is added
             record.append([None, tgt[j]])
             j += 1
         else:
@@ -85,7 +101,7 @@ ErrorType = {
     'NNS': 'NOUN',
     'NNP': 'NOUN',
     'NNPS': 'NOUN',
-    'TO': 'IN',
+    'TO': 'PREP',
     'VB': 'VERB',
     'VBG': 'VERB',
     'VBN': 'VERB',
@@ -106,7 +122,10 @@ ErrorType = {
 
 class Corrector:
     def __init__(self, train_path, test_path, model_path, reader='MovieDialog'):
-        self.config = DefaultMovieDialogConfig()
+        if reader=='MovieDialog':
+            self.config = DefaultMovieDialogConfig()
+        elif reader=='Conll':
+            self.config = DefaultConllConfig()
         self.config.model_path = model_path
         # self.data_reader = get_reader(self.config, train_path, test_path, reader=reader, process=False)
         self.train_path = train_path
@@ -115,7 +134,7 @@ class Corrector:
 
     def train(self):
         data_reader = get_reader(self.config, self.train_path, self.test_path, reader=self.reader, process=True)
-        train(data_reader)
+        train(self.config, data_reader)
 
     def corrector_init(self):
         self.sess = tf.Session()

@@ -28,7 +28,7 @@ import numpy as np
 import tensorflow as tf
 
 from .data_reader import EOS_ID
-from .text_corrector_data_readers import MovieDialogReader, PTBDataReader
+from .text_corrector_data_readers import MovieDialogReader, PTBDataReader, ConllReader
 
 from .text_corrector_models import TextCorrectorModel
 
@@ -154,6 +154,24 @@ class DefaultMovieDialogConfig(DefaultConfig):
     # replacement_prob=0.25
     # dataset_copies=2
 
+class DefaultConllConfig(DefaultConfig):
+
+    steps_per_checkpoint = 1000
+    max_steps = 20000
+    epochs = 100
+    print_every = 200
+
+    max_vocabulary_size = 2000
+
+    size = 512
+    num_layers = 4
+    batch_size = 64
+
+    use_lstm = True
+    use_rms_prop = False
+
+    model_path = 'conll_correcter_model'
+
 def create_model(session, forward_only, config=TestConfig()):
     """Create translation model and initialize or load parameters in session."""
     model = TextCorrectorModel(
@@ -187,10 +205,23 @@ def create_model(session, forward_only, config=TestConfig()):
         session.run(tf.global_variables_initializer())
     return model, step
 
+def reset_model(session, model):
+    op = tf.assign(model.global_step, 0)
+    session.run(op)
 
-def train(data_reader):
+def train(config, data_reader):
     """"""
-    config = data_reader.config
+    logging.info('-'*80)
+    logging.info('steps_per_checkpoint: %d'%config.steps_per_checkpoint)
+    logging.info('epochs: %d'%config.epochs)
+    logging.info('print_every: %d'%config.print_every)
+    logging.info('max_vocabulary_size: %d'%config.max_vocabulary_size)
+    logging.info('layer size: %d'%config.size)
+    logging.info('num_layers: %d'%config.num_layers)
+    logging.info('batch_size: %d'%config.batch_size)
+    logging.info('model_path: %s'%config.model_path)
+    logging.info('-'*80)
+    # config = data_reader.config
     # train_data = data_reader.build_dataset(train_path)
     # test_data = data_reader.build_dataset(test_path)
     train_data, test_data = data_reader.train_data, data_reader.test_data
@@ -206,8 +237,9 @@ def train(data_reader):
         train_bucket_sizes = [len(train_data[b]) for b in range(len(config.buckets))]
         logging.info("Training bucket sizes: {}".format(train_bucket_sizes))
         train_total_size = float(sum(train_bucket_sizes))
-        logging.info("Total train size: {}".format(train_total_size))
+        logging.info("Total train size: {:.0f}".format(train_total_size))
         config.max_steps = config.epochs * int(train_total_size//config.batch_size)
+        logging.info("max steps: {:.0f}".format(config.max_steps))
 
         # A bucket scale is a list of increasing numbers from 0 to 1 that
         # we'll use to select a bucket. Length of [scale[i], scale[i+1]] is
@@ -227,8 +259,11 @@ def train(data_reader):
         epoch_step = current_step%batches_per_epoch
         previous_losses = []
         logging.info('Initial step: {}, epoch: {}'.format(current_step, current_epoch))
+        if current_step == 0:
+            reset_model(sess, model)
         epoch_tic = time.time()
         epoch_step = current_step%batches_per_epoch
+        exp_loss = 0
         if debug: exit()
         while current_step < config.max_steps:
             if current_step%batches_per_epoch == 0:
@@ -262,14 +297,15 @@ def train(data_reader):
             toc = time.time()
             step_time += (toc - tic) / config.steps_per_checkpoint
             loss += step_loss / config.steps_per_checkpoint
+            exp_loss = exp_loss*0.01 + step_loss*0.99
             current_step += 1
 
             if current_step==1 or current_step % config.print_every == 0:
                 time_per_batch = (time.time()-epoch_tic)/epoch_step
                 # logging.info(time.strftime('%Y-%m-%d %H:%M:%S',time.localtime(time.time())))
-                logging.info('Step %d/%d, epoch %d/%d, batch %d/%.0f, loss %f, avgloss: %f' %
+                logging.info('Step %d/%d, epoch %d/%d, batch %d/%.0f, loss %f, avloss: %f, exploss: %f' %
                             (current_step, config.max_steps, current_epoch, config.epochs, 
-                            epoch_step, batches_per_epoch, step_loss, loss))
+                            epoch_step, batches_per_epoch, step_loss, loss, exp_loss))
                             # exp_loss / exp_length, grad_norm, param_norm, mean_length, std_length))
                 logging.info('Time: {}, ETA: {}, step time: {}\n'.format(
                                 sec2str(toc-start_time), 
@@ -480,7 +516,7 @@ def evaluate_accuracy(sess, model, data_reader, corrective_tokens, test_path,
     return errors
 
 def get_reader(config, train_path, test_path, reader='MovieDialog', process=True):
-    assert reader in ['MovieDialog'], 'invalid reader: '+reader
+    assert reader in ['MovieDialog', 'Conll'], 'invalid reader: '+reader
     # logging.info("Reading data: train = {}, test = {}".format(train_path, test_path))
     # reader_path = os.path.join(config.model_path, reader+'Reader.p')
     token2id_path = os.path.join(config.model_path, reader+'_token2id.p')
@@ -491,12 +527,25 @@ def get_reader(config, train_path, test_path, reader='MovieDialog', process=True
     else:
         if not os.path.exists(config.model_path): os.mkdir(config.model_path)
         logging.info('Creating reader')
-        data_reader = MovieDialogReader(config, train_path)
-        # data_reader = MovieDialogReader(config, train_path, dropout_prob=0.25, replacement_prob=0.25, dataset_copies=1)
+        if reader == 'MovieDialog':
+            data_reader = MovieDialogReader(config, train_path)
+            # data_reader = MovieDialogReader(config, train_path, dropout_prob=0.25, replacement_prob=0.25, dataset_copies=1)
+        elif reader == 'Conll':
+            pre_token2id_path = os.path.join(config.model_path, 'pre_token2id.p')
+            if os.path.exists(pre_token2id_path):
+                token2id = pickle.load(open(pre_token2id_path, 'rb'))
+                logging.info('Appending new words to %s' % pre_token2id_path)
+                data_reader = ConllReader(config, train_path, token2id, append=True)
+            else:
+                data_reader = ConllReader(config, train_path)
+
         logging.info('Saving token to %s'%token2id_path)
         pickle.dump(data_reader.token_to_id, open(token2id_path, 'wb'))
+    logging.info('Total Tokens: %d'%len(token2id))
+    config.max_vocabulary_size = len(token2id)
+
     if process:
-        logging.info('Reader processing data, train: {}, test: {}'.format(train_path, test_path))
+        logging.info('Reader processing data\n train: {}\n test: {}'.format(train_path, test_path))
         data_reader.process(train_path, test_path)
     return data_reader
 

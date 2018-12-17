@@ -3,7 +3,6 @@ from __future__ import division
 from __future__ import print_function
 
 from collections import Counter
-import pickle
 
 # Define constants associated with the usual special-case tokens.
 PAD_ID = 0
@@ -25,8 +24,7 @@ class DataReader(object):
         # Construct vocabulary.
         max_vocabulary_size = self.config.max_vocabulary_size
 
-        # self.token_to_id = pickle.load(open(pkpath, 'rb'))
-        if train_path is None:
+        if token_to_id:
             self.token_to_id = token_to_id
         else:
             token_counts = Counter()
@@ -34,7 +32,7 @@ class DataReader(object):
             for tokens in self.read_tokens(train_path):
                 token_counts.update(tokens)
 
-            self.token_counts = token_counts
+            token_counts = token_counts
 
             # Get to max_vocab_size words
             count_pairs = sorted(token_counts.items(),
@@ -44,7 +42,7 @@ class DataReader(object):
             # Insert the special tokens at the beginning.
             vocabulary[0:0] = special_tokens
             full_token_and_id = list(zip(vocabulary, range(len(vocabulary))))
-            self.full_token_to_id = dict(full_token_and_id)
+            full_token_to_id = dict(full_token_and_id)
             self.token_to_id = dict(full_token_and_id[:max_vocabulary_size])
             # print([fuck for fuck in full_token_and_id])
             # self.token_to_id['UNK']
