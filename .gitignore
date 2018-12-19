@@ -8,6 +8,8 @@ upload_lambda_s3.sh
 dataset
 *.txt
 dialog_correcter_model
+conll_correcter_model
 graph
 *.tgz
 __pycache__
+.*

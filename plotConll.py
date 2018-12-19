@@ -10,7 +10,7 @@ print('Processing data ...')
 with open(log_path, 'r') as fhd:
     for line in fhd:
         line = line[24:].strip()
-        if line[:4].lower() == 'step':
+        if line[:5].lower() == 'step ':
             cols = line.split(', ')
             k = cols[0].find('/')
             step.append(int(cols[0][5:k]))
