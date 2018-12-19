@@ -1,5 +1,17 @@
 模型修改自 [Deep Text Corrector](https://github.com/atpaino/deep-text-corrector)
 
+训练模型：
+
+```bash
+python3 train.py
+```
+
+使用模型：
+
+```
+python3 test.py
+```
+
 ### 模型要求
 
 纠正英文句子中的6种错误
@@ -49,11 +61,19 @@ RNN 单元：LSTM
 
 对原句子和纠正后的句子分别用NLTK标记各单词的词性，然后贪心地找出不同的（被纠正的）词，最后根据其词性确定错误的类型。
 
-### 参考文献
+### 代码结构
+
+- corrector/corrector.py 定义了Corrector 类，封装了训练和对句子进行纠正的函数，调用方法可参考 train.py 和 test.py
+- corrector/data_reader.py, text_corrector_data_readers.py 实现了对各数据集的读取和处理
+- corrector/text_corrector_models.py 实现seq2seq模型
+- corrector/seq2seq.py 旧版本tf中的seq2seq包
+- corrector/noise.py 提供了对文本添加噪声的函数
+
+### 参考资料
 
 - [Neural Machine Translation by Jointly Learning to Align and Translate](https://arxiv.org/abs/1409.0473)
 - [Sequence to Sequence Learning with Neural Networks](https://arxiv.org/abs/1409.3215)
 - [GRAMMATICAL ERROR CORRECTION](https://www.cse.iitb.ac.in/~krishnachaitanyagudi/btp_report.pdf)
 - [Neural Language Correction with Character-Based Attention](https://arxiv.org/pdf/1603.09727.pdf)
 - [Deep Context Model for Grammatical Error Correction](http://www.slate2017.org/papers/SLaTE_2017_paper_5.pdf)
-
+- [完全图解RNN、RNN变体、Seq2Seq、Attention机制](https://zhuanlan.zhihu.com/p/28054589)
